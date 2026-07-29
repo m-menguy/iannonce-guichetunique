@@ -1,230 +1,223 @@
-import { useCallback, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, FileText, UploadCloud, X } from 'lucide-react';
+import { useState } from 'react';
+import { Cloud } from 'lucide-react';
+import { PreviewModal } from './components/PreviewModal';
 
-interface UploadedFile {
-  id: string;
-  file: File;
+interface ExtractedData {
+  denomination?: string;
+  forme_juridique?: string;
+  capital_montant?: string;
+  siege_adresse?: string;
+  siege_codepostal?: string;
+  siege_commune?: string;
+  objet_social?: string;
+  dirigeant_nom?: string;
+  dirigeant_prenom?: string;
+  durée_années?: string;
+  activite?: string;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 o';
-  const k = 1024;
-  const sizes = ['o', 'Ko', 'Mo', 'Go'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
+const N8N_WEBHOOK_URL = 'https://legal2digital.app.n8n.cloud/webhook-test/11c30306-9c8b-4ffe-9fb7-d953cbf61511';
 
-function App() {
-  const [files, setFiles] = useState<UploadedFile[]>([]);
+export default function App() {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const addFiles = useCallback((newFiles: FileList | File[]) => {
-    const incoming = Array.from(newFiles);
-    setFiles((prev) => {
-      const existing = new Set(prev.map((f) => f.file.name + f.file.size));
-      const toAdd = incoming
-        .filter((f) => !existing.has(f.name + f.size))
-        .map((f) => ({ id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`, file: f }));
-      return [...prev, ...toAdd];
-    });
-    setSubmitted(false);
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(true);
-  }, []);
+  };
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragLeave = () => {
     setIsDragging(false);
-  }, []);
+  };
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        addFiles(e.dataTransfer.files);
-      }
-    },
-    [addFiles],
-  );
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      setSelectedFile(files[0]);
+    }
+  };
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files.length > 0) {
-        addFiles(e.target.files);
-      }
-      e.target.value = '';
-    },
-    [addFiles],
-  );
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      setSelectedFile(files[0]);
+    }
+  };
 
-  const removeFile = useCallback((id: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
-  }, []);
+  const handleSubmit = async () => {
+    if (!selectedFile) {
+      setError('Veuillez sélectionner un fichier');
+      return;
+    }
 
-  const handleSubmit = useCallback(async () => {
-    if (files.length === 0) return;
-    setIsSubmitting(true);
-    setSubmitError(null);
-
-    const formData = new FormData();
-    files.forEach((item) => {
-      formData.append('files', item.file, item.file.name);
-    });
+    setIsLoading(true);
+    setError(null);
 
     try {
-      const response = await fetch(
-        'https://legal2digital.app.n8n.cloud/webhook-test/11c30306-9c8b-4ffe-9fb7-d953cbf61511',
-        { method: 'POST', body: formData },
-      );
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      
+      console.log('Envoi du fichier à N8N:', selectedFile.name);
+      
+      const response = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        body: formData
+      });
+
       if (!response.ok) {
-        throw new Error(`Erreur ${response.status}`);
+        setError(`❌ Erreur N8N: ${response.status}`);
+        setIsLoading(false);
+        return;
       }
-      setSubmitted(true);
-      setFiles([]);
-    } catch (err) {
-      setSubmitError(
-        err instanceof Error ? err.message : 'Une erreur est survenue lors de l\'envoi.',
-      );
-    } finally {
-      setIsSubmitting(false);
+
+      // ✅ Récupère directement la réponse JSON de N8N
+      const data = await response.json();
+      
+      console.log('Données complètes reçues de N8N:', data);
+      console.log('Denomination:', data.denomination);
+      console.log('Forme juridique:', data.forme_juridique);
+      
+      // Ajoute un délai PLUS LONG pour montrer le loader (10 secondes)
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      
+      // Affiche le modal
+      setExtractedData(data);
+      setShowPreview(true);
+      setIsLoading(false);
+      
+    } catch (error) {
+      console.error('Erreur:', error);
+      setError(`❌ Erreur: ${error}`);
+      setIsLoading(false);
     }
-  }, [files]);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-xl">
-        <div className="text-center mb-8">
-          <img
-            src="/SVG-Logo_favicon.svg"
-            alt="Logo"
-            className="w-16 h-16 mb-4 mx-auto"
-          />
-          <h1 className="text-2xl font-semibold text-slate-800 tracking-tight">
-            Déposez vos documents
-          </h1>
-          <p className="text-slate-500 mt-1.5 text-sm">
-            Glissez-déposez un ou plusieurs fichiers, ou parcourez votre ordinateur.
-          </p>
-        </div>
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
+      
+      {/* Logo */}
+      <div className="mb-8">
+        <img 
+          src="/SVG-Logo_favicon.svg" 
+          alt="Formaliste Logo" 
+          className="w-16 h-16"
+        />
+      </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      {/* Main Content */}
+      <div className="max-w-2xl w-full">
+        
+        {/* Title */}
+        <h1 className="text-4xl font-bold text-center text-slate-900 mb-2">
+          Déposez vos documents
+        </h1>
+        
+        {/* Subtitle */}
+        <p className="text-center text-slate-600 mb-12">
+          Glissez-déposez un ou plusieurs fichiers, ou parcourez votre ordinateur.
+        </p>
+
+        {/* Upload Card */}
+        <div className="bg-white border-2 border-slate-200 rounded-lg p-12 mb-6">
+          
+          {/* Drag & Drop Zone */}
           <div
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onClick={() => inputRef.current?.click()}
-            className={`relative cursor-pointer rounded-xl border-2 border-dashed transition-all duration-200 px-6 py-12 text-center
-              ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50 scale-[1.01]'
-                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/40'
-              }`}
+            className={`border-2 border-dashed rounded-lg p-12 text-center mb-6 transition ${
+              isDragging
+                ? 'border-slate-400 bg-slate-50'
+                : 'border-slate-300 bg-slate-50'
+            }`}
           >
+            <Cloud size={48} className="mx-auto text-slate-400 mb-4" />
+            <p className="text-slate-700 font-semibold">Glissez vos fichiers ici</p>
+            <p className="text-slate-500 text-sm mt-2">ou cliquez pour parcourir</p>
+            
             <input
-              ref={inputRef}
               type="file"
-              multiple
-              onChange={handleFileSelect}
+              onChange={handleFileInput}
               className="hidden"
+              id="file-input"
+              accept=".pdf,.doc,.docx,.txt"
             />
-            <UploadCloud
-              className={`mx-auto w-10 h-10 mb-3 transition-colors duration-200 ${
-                isDragging ? 'text-blue-500' : 'text-slate-300'
-              }`}
-              strokeWidth={1.5}
-            />
-            <p className="text-sm font-medium text-slate-600">
-              {isDragging ? 'Relâchez pour déposer' : 'Glissez vos fichiers ici'}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              ou cliquez pour parcourir
-            </p>
           </div>
 
-          {files.length > 0 && (
-            <ul className="mt-5 space-y-2">
-              {files.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-lg bg-slate-50 border border-slate-100 px-3.5 py-2.5 group transition-colors hover:border-blue-200"
-                >
-                  <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <FileText className="w-4 h-4 text-blue-600" strokeWidth={2} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-700 truncate">
-                      {item.file.name}
-                    </p>
-                    <p className="text-xs text-slate-400">{formatBytes(item.file.size)}</p>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeFile(item.id);
-                    }}
-                    className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                    aria-label="Retirer le fichier"
-                  >
-                    <X className="w-4 h-4" strokeWidth={2} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* File Input Label */}
+          <label
+            htmlFor="file-input"
+            className="block w-full cursor-pointer mb-6"
+          >
+            <div className="text-center p-4 rounded border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition">
+              <Cloud size={20} className="mx-auto text-slate-400 mb-2" />
+              <p className="text-slate-600 text-sm font-medium">Cliquez pour sélectionner des fichiers</p>
+            </div>
+          </label>
 
-          {submitError && (
-            <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-red-50 border border-red-100 px-4 py-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" strokeWidth={2} />
-              <p className="text-sm text-red-700 font-medium">
-                {submitError}
-              </p>
+          {/* Selected File Info */}
+          {selectedFile && (
+            <div className="bg-green-50 border border-green-200 rounded p-3 mb-6">
+              <p className="text-green-900 font-semibold">✅ Fichier sélectionné:</p>
+              <p className="text-green-800 text-sm">{selectedFile.name}</p>
             </div>
           )}
 
-          {submitted && (
-            <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-green-50 border border-green-100 px-4 py-3">
-              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" strokeWidth={2} />
-              <p className="text-sm text-green-700 font-medium">
-                Document(s) soumis(s) avec succès.
-              </p>
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded p-3 mb-6">
+              <p className="text-red-900 font-semibold">{error}</p>
             </div>
           )}
 
+          {/* Submit Button - BLEU */}
           <button
             onClick={handleSubmit}
-            disabled={files.length === 0 || isSubmitting}
-            className={`w-full mt-6 py-3 rounded-xl font-medium text-sm transition-all duration-200
-              ${
-                files.length === 0 || isSubmitting
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/25 active:scale-[0.99]'
-              }`}
+            disabled={!selectedFile || isLoading}
+            className={`w-full font-semibold py-3 px-6 rounded transition ${
+              !selectedFile || isLoading
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
           >
-            {isSubmitting
-              ? 'Envoi en cours…'
-              : `Soumettre le${files.length > 1 ? 's' : ''} document${files.length > 1 ? 's' : ''}`}
+            {isLoading ? 'Traitement en cours...' : 'Soumettre le document'}
           </button>
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6">
-          {files.length > 0
-            ? `${files.length} fichier${files.length > 1 ? 's' : ''} sélectionné${files.length > 1 ? 's' : ''}`
-            : 'Aucun fichier sélectionné'}
+        {/* File Status */}
+        <p className="text-center text-slate-400 text-sm">
+          {selectedFile ? `1 - ${selectedFile.name}` : 'Aucun fichier sélectionné'}
         </p>
       </div>
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+          <div className="bg-white rounded-lg p-8 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-900 font-semibold">Traitement en cours...</p>
+            <p className="text-slate-600 text-sm mt-2">L'IA analyse votre document...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      <PreviewModal
+        isOpen={showPreview}
+        onClose={() => {
+          setShowPreview(false);
+          setSelectedFile(null);
+          setError(null);
+        }}
+        data={extractedData}
+      />
     </div>
   );
 }
-
-export default App;
