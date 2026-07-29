@@ -66,6 +66,7 @@ export default function App() {
       
       console.log('Envoi du fichier à N8N:', selectedFile.name);
       
+      // Envoie le PDF à N8N
       const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         body: formData
@@ -77,17 +78,29 @@ export default function App() {
         return;
       }
 
-      // ✅ Récupère directement la réponse JSON de N8N
-      const data = await response.json();
+      // N8N retourne un ID
+      const result = await response.json();
+      const id = result.id;
       
-      console.log('Données complètes reçues de N8N:', data);
-      console.log('Denomination:', data.denomination);
-      console.log('Forme juridique:', data.forme_juridique);
+      console.log('ID reçu de N8N:', id);
       
-      // Ajoute un délai PLUS LONG pour montrer le loader (10 secondes)
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      // Attends 3 secondes pour que N8N finisse de traiter
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // Affiche le modal
+      // Récupère les données depuis la Vercel Function
+      const dataResponse = await fetch(`/api/save-preview?id=${id}`);
+      
+      if (!dataResponse.ok) {
+        setError('❌ Erreur lors de la récupération des données');
+        setIsLoading(false);
+        return;
+      }
+      
+      const data = await dataResponse.json();
+      
+      console.log('Données reçues:', data);
+      
+      // Affiche le modal avec les données
       setExtractedData(data);
       setShowPreview(true);
       setIsLoading(false);
