@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Cloud } from 'lucide-react';
 import { PreviewModal } from './components/PreviewModal';
 
@@ -25,6 +25,7 @@ export default function App() {
   const [showPreview, setShowPreview] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -51,6 +52,32 @@ export default function App() {
     }
   };
 
+  // POLL pour récupérer les données
+  useEffect(() => {
+    if (!sessionId || !isLoading) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/save-preview?id=${sessionId}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Données récupérées:', data);
+          
+          setExtractedData(data);
+          setShowPreview(true);
+          setIsLoading(false);
+          setSessionId(null);
+          clearInterval(pollInterval);
+        }
+      } catch (error) {
+        console.error('Erreur poll:', error);
+      }
+    }, 500); // Poll toutes les 500ms
+
+    return () => clearInterval(pollInterval);
+  }, [sessionId, isLoading]);
+
   const handleSubmit = async () => {
     if (!selectedFile) {
       setError('Veuillez sélectionner un fichier');
@@ -60,13 +87,17 @@ export default function App() {
     setIsLoading(true);
     setError(null);
 
+    // Génère un ID unique
+    const newSessionId = Date.now().toString();
+    setSessionId(newSessionId);
+
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('sessionId', newSessionId);
       
-      console.log('Envoi du fichier à N8N:', selectedFile.name);
+      console.log('Envoi à N8N avec sessionId:', newSessionId);
       
-      // Envoie le PDF à N8N
       const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         body: formData
@@ -75,40 +106,18 @@ export default function App() {
       if (!response.ok) {
         setError(`❌ Erreur N8N: ${response.status}`);
         setIsLoading(false);
+        setSessionId(null);
         return;
       }
 
-      // N8N retourne un ID
-      const result = await response.json();
-      const id = result.id;
-      
-      console.log('ID reçu de N8N:', id);
-      
-      // Attends 3 secondes pour que N8N finisse de traiter
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Récupère les données depuis la Vercel Function
-      const dataResponse = await fetch(`/api/save-preview?id=${id}`);
-      
-      if (!dataResponse.ok) {
-        setError('❌ Erreur lors de la récupération des données');
-        setIsLoading(false);
-        return;
-      }
-      
-      const data = await dataResponse.json();
-      
-      console.log('Données reçues:', data);
-      
-      // Affiche le modal avec les données
-      setExtractedData(data);
-      setShowPreview(true);
-      setIsLoading(false);
+      console.log('✅ Fichier envoyé, en attente de traitement...');
+      // Le polling va se charger du reste
       
     } catch (error) {
       console.error('Erreur:', error);
       setError(`❌ Erreur: ${error}`);
       setIsLoading(false);
+      setSessionId(null);
     }
   };
 
@@ -190,7 +199,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Submit Button - BLEU */}
+          {/* Submit Button */}
           <button
             onClick={handleSubmit}
             disabled={!selectedFile || isLoading}
